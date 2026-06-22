@@ -229,7 +229,7 @@ select.form-control{appearance:none;cursor:pointer}
         <button class="btn-sm btn-primary" onclick="novaEmpresa()">+ Nova Empresa</button>
       </div>
       <table class="data-table">
-        <thead><tr><th>ID</th><th>Nome</th><th>CNPJ</th><th>Logo</th><th>Responsáveis</th><th>Ações</th></tr></thead>
+        <thead><tr><th>ID</th><th>Nome</th><th>CNPJ</th><th>Logo</th><th>Planilha</th><th>Responsáveis</th><th>Ações</th></tr></thead>
         <tbody id="tbody-empresas"></tbody>
       </table>
     </div>
@@ -261,6 +261,22 @@ select.form-control{appearance:none;cursor:pointer}
           </div>
           <input type="file" id="logo-input" accept="image/*" style="display:none" onchange="loadLogo(this)">
         </div>
+      </div>
+
+      <!-- PLANILHA PADRÃO -->
+      <div style="margin-top:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div>
+            <div style="font-size:12px;font-weight:600;color:#f0f4ff">📊 Planilha AEP Padrão</div>
+            <div style="font-size:10px;color:#4a6a8a;margin-top:2px">Quando o usuário logar, a planilha já estará carregada automaticamente</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span id="planilha-status" style="font-size:11px;color:#4a6a8a">Nenhuma planilha</span>
+            <button class="btn-sm btn-secondary" onclick="document.getElementById('planilha-input').click()">📂 Importar .xlsx</button>
+            <button class="btn-sm btn-danger" onclick="removerPlanilha()" id="btn-remover-planilha" style="display:none">✕ Remover</button>
+          </div>
+        </div>
+        <input type="file" id="planilha-input" accept=".xlsx,.xls" style="display:none" onchange="loadPlanilha(this)">
       </div>
 
       <!-- RESPONSÁVEIS -->
@@ -358,6 +374,7 @@ let editUserIdx = -1;
 let editEmpIdx  = -1;
 let currentLogo = '';
 let currentResps = [];
+let currentPlanilha = null; // {nome, base64}
 
 // ── TABS ──
 function switchTab(tab) {
@@ -487,6 +504,7 @@ function renderEmpresas() {
     <td style="font-weight:500">${e.nome}</td>
     <td style="font-size:11px;color:#6b8aaa">${e.cnpj||'—'}</td>
     <td>${e.logo ? '<img src="'+e.logo+'" style="max-height:28px;max-width:80px;object-fit:contain">' : '<span style="color:#3a4a60;font-size:11px">Sem logo</span>'}</td>
+    <td style="font-size:11px">${e.planilha ? '<span style="color:#22c55e">✓ '+e.planilha.nome+'</span>' : '<span style="color:#3a4a60">—</span>'}</td>
     <td style="font-size:11px">${(e.responsaveis||[]).length} responsável(is)</td>
     <td style="display:flex;gap:6px">
       <button class="btn-sm btn-secondary" onclick="editarEmpresa(${i})">✏️ Editar</button>
@@ -497,10 +515,11 @@ function renderEmpresas() {
 
 function novaEmpresa() {
   editEmpIdx = -1;
-  currentLogo = ''; currentResps = [];
+  currentLogo = ''; currentResps = []; currentPlanilha = null;
   document.getElementById('form-emp-title').textContent = 'Nova Empresa';
   ['e-id','e-nome','e-cnpj'].forEach(id => document.getElementById(id).value = '');
   resetLogoArea();
+  updatePlanilhaStatus();
   renderResps();
   document.getElementById('form-empresa').style.display = 'block';
 }
@@ -514,7 +533,9 @@ function editarEmpresa(i) {
   document.getElementById('e-cnpj').value = e.cnpj||'';
   currentLogo = e.logo || '';
   currentResps = JSON.parse(JSON.stringify(e.responsaveis||[]));
+  currentPlanilha = e.planilha || null;
   updateLogoArea();
+  updatePlanilhaStatus();
   renderResps();
   document.getElementById('form-empresa').style.display = 'block';
 }
@@ -524,6 +545,48 @@ function loadLogo(input) {
   const reader = new FileReader();
   reader.onload = e => { currentLogo = e.target.result; updateLogoArea(); };
   reader.readAsDataURL(input.files[0]);
+}
+
+function loadPlanilha(input) {
+  if (!input.files[0]) return;
+  const file = input.files[0];
+  toast('Lendo planilha…', 'info');
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    // Store as base64
+    currentPlanilha = {
+      nome: file.name,
+      base64: btoa(
+        new Uint8Array(e.target.result).reduce((d, b) => d + String.fromCharCode(b), '')
+      ),
+      tamanho: Math.round(file.size / 1024) + 'KB',
+    };
+    updatePlanilhaStatus();
+    toast('✓ Planilha "' + file.name + '" carregada (' + currentPlanilha.tamanho + ')', 'success');
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function updatePlanilhaStatus() {
+  const status = document.getElementById('planilha-status');
+  const btnRemover = document.getElementById('btn-remover-planilha');
+  if (!status) return;
+  if (currentPlanilha) {
+    status.textContent = '✓ ' + currentPlanilha.nome + ' (' + currentPlanilha.tamanho + ')';
+    status.style.color = '#22c55e';
+    if (btnRemover) btnRemover.style.display = '';
+  } else {
+    status.textContent = 'Nenhuma planilha';
+    status.style.color = '#4a6a8a';
+    if (btnRemover) btnRemover.style.display = 'none';
+  }
+}
+
+function removerPlanilha() {
+  currentPlanilha = null;
+  document.getElementById('planilha-input').value = '';
+  updatePlanilhaStatus();
+  toast('Planilha removida.', 'info');
 }
 
 function resetLogoArea() {
@@ -593,7 +656,7 @@ function salvarEmpresa() {
   const dup = empresas.findIndex((e,i) => e.id === id && i !== editEmpIdx);
   if (dup >= 0) { toast('ID de empresa já existe.', 'error'); return; }
 
-  const emp = { id, nome, cnpj, logo: currentLogo, responsaveis: currentResps };
+  const emp = { id, nome, cnpj, logo: currentLogo, responsaveis: currentResps, planilha: currentPlanilha };
   if (editEmpIdx >= 0) empresas[editEmpIdx] = emp;
   else empresas.push(emp);
 
